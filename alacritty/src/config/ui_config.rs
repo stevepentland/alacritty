@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use glutin::event::{ModifiersState, VirtualKeyCode};
 use log::error;
 use serde::de::Error as SerdeError;
 use serde::{self, Deserialize, Deserializer};
@@ -13,7 +14,7 @@ use alacritty_terminal::term::search::RegexSearch;
 
 use crate::config::bell::BellConfig;
 use crate::config::bindings::{
-    self, Action, Binding, BindingMode, Key, KeyBinding, ModsWrapper, MouseBinding,
+    self, Action, Binding, Key, KeyBinding, ModeWrapper, ModsWrapper, MouseBinding,
 };
 use crate::config::color::Colors;
 use crate::config::debug::Debug;
@@ -23,8 +24,8 @@ use crate::config::window::WindowConfig;
 
 /// Regex used for the default URL hint.
 #[rustfmt::skip]
-const URL_REGEX: &str = "(mailto:|gemini:|gopher:|https:|http:|news:|file:|git:|ssh:|ftp:)\
-                         [^\u{0000}-\u{001F}\u{007F}-\u{009F}<>\" {-}\\^⟨⟩`]+";
+const URL_REGEX: &str = "(ipfs:|ipns:|magnet:|mailto:|gemini:|gopher:|https:|http:|news:|file:|git:|ssh:|ftp:)\
+                         [^\u{0000}-\u{001F}\u{007F}-\u{009F}<>\"\\s{-}\\^⟨⟩`]+";
 
 #[derive(ConfigDeserialize, Debug, PartialEq)]
 pub struct UiConfig {
@@ -104,8 +105,8 @@ impl UiConfig {
             let binding = KeyBinding {
                 trigger: binding.key,
                 mods: binding.mods.0,
-                mode: BindingMode::empty(),
-                notmode: BindingMode::empty(),
+                mode: binding.mode.mode,
+                notmode: binding.mode.not_mode,
                 action: Action::Hint(hint.clone()),
             };
 
@@ -120,7 +121,7 @@ impl UiConfig {
 
     #[inline]
     pub fn key_bindings(&self) -> &[KeyBinding] {
-        &self.key_bindings.0.as_slice()
+        self.key_bindings.0.as_slice()
     }
 
     #[inline]
@@ -238,7 +239,11 @@ impl Default for Hints {
                 action,
                 post_processing: true,
                 mouse: Some(HintMouse { enabled: true, mods: Default::default() }),
-                binding: Default::default(),
+                binding: Some(HintBinding {
+                    key: Key::Keycode(VirtualKeyCode::U),
+                    mods: ModsWrapper(ModifiersState::SHIFT | ModifiersState::CTRL),
+                    mode: Default::default(),
+                }),
             }],
             alphabet: Default::default(),
         }
@@ -336,6 +341,8 @@ pub struct HintBinding {
     pub key: Key,
     #[serde(default)]
     pub mods: ModsWrapper,
+    #[serde(default)]
+    pub mode: ModeWrapper,
 }
 
 /// Hint mouse highlighting.
@@ -392,7 +399,7 @@ impl LazyRegexVariant {
         };
 
         // Compile the regex.
-        let regex_search = match RegexSearch::new(&regex) {
+        let regex_search = match RegexSearch::new(regex) {
             Ok(regex_search) => regex_search,
             Err(error) => {
                 error!("hint regex is invalid: {}", error);
