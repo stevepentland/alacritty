@@ -1,10 +1,11 @@
 use serde::de::Error as SerdeError;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use alacritty_config_derive::ConfigDeserialize;
-use alacritty_terminal::term::color::{CellRgb, Rgb};
 
-#[derive(ConfigDeserialize, Clone, Debug, Default, PartialEq, Eq)]
+use crate::display::color::{CellRgb, Rgb};
+
+#[derive(ConfigDeserialize, Serialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Colors {
     pub primary: PrimaryColors,
     pub cursor: InvertedCellColors,
@@ -17,31 +18,34 @@ pub struct Colors {
     pub search: SearchColors,
     pub line_indicator: LineIndicatorColors,
     pub hints: HintColors,
+    pub transparent_background_colors: bool,
+    pub draw_bold_text_with_bright_colors: bool,
+    footer_bar: BarColors,
 }
 
 impl Colors {
-    pub fn search_bar_foreground(&self) -> Rgb {
-        self.search.bar.foreground.unwrap_or(self.primary.background)
+    pub fn footer_bar_foreground(&self) -> Rgb {
+        self.footer_bar.foreground.unwrap_or(self.primary.background)
     }
 
-    pub fn search_bar_background(&self) -> Rgb {
-        self.search.bar.background.unwrap_or(self.primary.foreground)
+    pub fn footer_bar_background(&self) -> Rgb {
+        self.footer_bar.background.unwrap_or(self.primary.foreground)
     }
 }
 
-#[derive(ConfigDeserialize, Copy, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Copy, Clone, Default, Debug, PartialEq, Eq)]
 pub struct LineIndicatorColors {
     pub foreground: Option<Rgb>,
     pub background: Option<Rgb>,
 }
 
-#[derive(ConfigDeserialize, Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Default, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct HintColors {
     pub start: HintStartColors,
     pub end: HintEndColors,
 }
 
-#[derive(ConfigDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct HintStartColors {
     pub foreground: CellRgb,
     pub background: CellRgb,
@@ -50,13 +54,13 @@ pub struct HintStartColors {
 impl Default for HintStartColors {
     fn default() -> Self {
         Self {
-            foreground: CellRgb::Rgb(Rgb { r: 0x1d, g: 0x1f, b: 0x21 }),
-            background: CellRgb::Rgb(Rgb { r: 0xe9, g: 0xff, b: 0x5e }),
+            foreground: CellRgb::Rgb(Rgb::new(0x18, 0x18, 0x18)),
+            background: CellRgb::Rgb(Rgb::new(0xf4, 0xbf, 0x75)),
         }
     }
 }
 
-#[derive(ConfigDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct HintEndColors {
     pub foreground: CellRgb,
     pub background: CellRgb,
@@ -65,13 +69,14 @@ pub struct HintEndColors {
 impl Default for HintEndColors {
     fn default() -> Self {
         Self {
-            foreground: CellRgb::Rgb(Rgb { r: 0xe9, g: 0xff, b: 0x5e }),
-            background: CellRgb::Rgb(Rgb { r: 0x1d, g: 0x1f, b: 0x21 }),
+            foreground: CellRgb::Rgb(Rgb::new(0x18, 0x18, 0x18)),
+            background: CellRgb::Rgb(Rgb::new(0xac, 0x42, 0x42)),
         }
     }
 }
 
-#[derive(Deserialize, Copy, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Copy, Clone, Default, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct IndexedColor {
     pub color: Rgb,
 
@@ -85,7 +90,7 @@ impl IndexedColor {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(Serialize, Copy, Clone, Default, Debug, PartialEq, Eq)]
 struct ColorIndex(u8);
 
 impl<'de> Deserialize<'de> for ColorIndex {
@@ -106,7 +111,7 @@ impl<'de> Deserialize<'de> for ColorIndex {
     }
 }
 
-#[derive(ConfigDeserialize, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct InvertedCellColors {
     #[config(alias = "text")]
     pub foreground: CellRgb,
@@ -120,14 +125,28 @@ impl Default for InvertedCellColors {
     }
 }
 
-#[derive(ConfigDeserialize, Debug, Copy, Clone, Default, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct SearchColors {
-    pub focused_match: InvertedCellColors,
+    pub focused_match: FocusedMatchColors,
     pub matches: MatchColors,
-    bar: BarColors,
 }
 
-#[derive(ConfigDeserialize, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FocusedMatchColors {
+    pub foreground: CellRgb,
+    pub background: CellRgb,
+}
+
+impl Default for FocusedMatchColors {
+    fn default() -> Self {
+        Self {
+            background: CellRgb::Rgb(Rgb::new(0xf4, 0xbf, 0x75)),
+            foreground: CellRgb::Rgb(Rgb::new(0x18, 0x18, 0x18)),
+        }
+    }
+}
+
+#[derive(ConfigDeserialize, Serialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct MatchColors {
     pub foreground: CellRgb,
     pub background: CellRgb,
@@ -136,19 +155,19 @@ pub struct MatchColors {
 impl Default for MatchColors {
     fn default() -> Self {
         Self {
-            background: CellRgb::Rgb(Rgb { r: 0xff, g: 0xff, b: 0xff }),
-            foreground: CellRgb::Rgb(Rgb { r: 0x00, g: 0x00, b: 0x00 }),
+            background: CellRgb::Rgb(Rgb::new(0xac, 0x42, 0x42)),
+            foreground: CellRgb::Rgb(Rgb::new(0x18, 0x18, 0x18)),
         }
     }
 }
 
-#[derive(ConfigDeserialize, Debug, Copy, Clone, Default, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct BarColors {
     foreground: Option<Rgb>,
     background: Option<Rgb>,
 }
 
-#[derive(ConfigDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct PrimaryColors {
     pub foreground: Rgb,
     pub background: Rgb,
@@ -159,15 +178,15 @@ pub struct PrimaryColors {
 impl Default for PrimaryColors {
     fn default() -> Self {
         PrimaryColors {
-            background: Rgb { r: 0x1d, g: 0x1f, b: 0x21 },
-            foreground: Rgb { r: 0xc5, g: 0xc8, b: 0xc6 },
+            background: Rgb::new(0x18, 0x18, 0x18),
+            foreground: Rgb::new(0xd8, 0xd8, 0xd8),
             bright_foreground: Default::default(),
             dim_foreground: Default::default(),
         }
     }
 }
 
-#[derive(ConfigDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct NormalColors {
     pub black: Rgb,
     pub red: Rgb,
@@ -182,19 +201,19 @@ pub struct NormalColors {
 impl Default for NormalColors {
     fn default() -> Self {
         NormalColors {
-            black: Rgb { r: 0x1d, g: 0x1f, b: 0x21 },
-            red: Rgb { r: 0xcc, g: 0x66, b: 0x66 },
-            green: Rgb { r: 0xb5, g: 0xbd, b: 0x68 },
-            yellow: Rgb { r: 0xf0, g: 0xc6, b: 0x74 },
-            blue: Rgb { r: 0x81, g: 0xa2, b: 0xbe },
-            magenta: Rgb { r: 0xb2, g: 0x94, b: 0xbb },
-            cyan: Rgb { r: 0x8a, g: 0xbe, b: 0xb7 },
-            white: Rgb { r: 0xc5, g: 0xc8, b: 0xc6 },
+            black: Rgb::new(0x18, 0x18, 0x18),
+            red: Rgb::new(0xac, 0x42, 0x42),
+            green: Rgb::new(0x90, 0xa9, 0x59),
+            yellow: Rgb::new(0xf4, 0xbf, 0x75),
+            blue: Rgb::new(0x6a, 0x9f, 0xb5),
+            magenta: Rgb::new(0xaa, 0x75, 0x9f),
+            cyan: Rgb::new(0x75, 0xb5, 0xaa),
+            white: Rgb::new(0xd8, 0xd8, 0xd8),
         }
     }
 }
 
-#[derive(ConfigDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct BrightColors {
     pub black: Rgb,
     pub red: Rgb,
@@ -208,20 +227,23 @@ pub struct BrightColors {
 
 impl Default for BrightColors {
     fn default() -> Self {
+        // Generated with oklab by multiplying brightness by 1.12 and then adjusting numbers
+        // to make them look "nicer". Yellow color was generated the same way, however the first
+        // srgb representable color was picked.
         BrightColors {
-            black: Rgb { r: 0x66, g: 0x66, b: 0x66 },
-            red: Rgb { r: 0xd5, g: 0x4e, b: 0x53 },
-            green: Rgb { r: 0xb9, g: 0xca, b: 0x4a },
-            yellow: Rgb { r: 0xe7, g: 0xc5, b: 0x47 },
-            blue: Rgb { r: 0x7a, g: 0xa6, b: 0xda },
-            magenta: Rgb { r: 0xc3, g: 0x97, b: 0xd8 },
-            cyan: Rgb { r: 0x70, g: 0xc0, b: 0xb1 },
-            white: Rgb { r: 0xea, g: 0xea, b: 0xea },
+            black: Rgb::new(0x6b, 0x6b, 0x6b),
+            red: Rgb::new(0xc5, 0x55, 0x55),
+            green: Rgb::new(0xaa, 0xc4, 0x74),
+            yellow: Rgb::new(0xfe, 0xca, 0x88),
+            blue: Rgb::new(0x82, 0xb8, 0xc8),
+            magenta: Rgb::new(0xc2, 0x8c, 0xb8),
+            cyan: Rgb::new(0x93, 0xd3, 0xc3),
+            white: Rgb::new(0xf8, 0xf8, 0xf8),
         }
     }
 }
 
-#[derive(ConfigDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct DimColors {
     pub black: Rgb,
     pub red: Rgb,
@@ -235,15 +257,16 @@ pub struct DimColors {
 
 impl Default for DimColors {
     fn default() -> Self {
+        // Generated with builtin alacritty's color dimming function.
         DimColors {
-            black: Rgb { r: 0x13, g: 0x14, b: 0x15 },
-            red: Rgb { r: 0x86, g: 0x43, b: 0x43 },
-            green: Rgb { r: 0x77, g: 0x7c, b: 0x44 },
-            yellow: Rgb { r: 0x9e, g: 0x82, b: 0x4c },
-            blue: Rgb { r: 0x55, g: 0x6a, b: 0x7d },
-            magenta: Rgb { r: 0x75, g: 0x61, b: 0x7b },
-            cyan: Rgb { r: 0x5b, g: 0x7d, b: 0x78 },
-            white: Rgb { r: 0x82, g: 0x84, b: 0x82 },
+            black: Rgb::new(0x0f, 0x0f, 0x0f),
+            red: Rgb::new(0x71, 0x2b, 0x2b),
+            green: Rgb::new(0x5f, 0x6f, 0x3a),
+            yellow: Rgb::new(0xa1, 0x7e, 0x4d),
+            blue: Rgb::new(0x45, 0x68, 0x77),
+            magenta: Rgb::new(0x70, 0x4d, 0x68),
+            cyan: Rgb::new(0x4d, 0x77, 0x70),
+            white: Rgb::new(0x8e, 0x8e, 0x8e),
         }
     }
 }

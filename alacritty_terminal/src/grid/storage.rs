@@ -1,7 +1,9 @@
-use std::cmp::{max, PartialEq};
+use std::cmp::max;
 use std::mem;
+use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use super::Row;
@@ -26,7 +28,8 @@ const MAX_CACHE_SIZE: usize = 1_000;
 /// [`slice::rotate_left`]: https://doc.rust-lang.org/std/primitive.slice.html#method.rotate_left
 /// [`Deref`]: std::ops::Deref
 /// [`zero`]: #structfield.zero
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Storage<T> {
     inner: Vec<Row<T>>,
 
@@ -63,7 +66,7 @@ impl<T> Storage<T> {
     #[inline]
     pub fn with_capacity(visible_lines: usize, columns: usize) -> Storage<T>
     where
-        T: Clone + Default,
+        T: Default,
     {
         // Initialize visible lines; the scrollback buffer is initialized dynamically.
         let mut inner = Vec::with_capacity(visible_lines);
@@ -76,13 +79,13 @@ impl<T> Storage<T> {
     #[inline]
     pub fn grow_visible_lines(&mut self, next: usize)
     where
-        T: Clone + Default,
+        T: Default,
     {
         // Number of lines the buffer needs to grow.
-        let growage = next - self.visible_lines;
+        let additional_lines = next - self.visible_lines;
 
         let columns = self[Line(0)].len();
-        self.initialize(growage, columns);
+        self.initialize(additional_lines, columns);
 
         // Update visible lines.
         self.visible_lines = next;
@@ -122,7 +125,7 @@ impl<T> Storage<T> {
     #[inline]
     pub fn initialize(&mut self, additional_rows: usize, columns: usize)
     where
-        T: Clone + Default,
+        T: Default,
     {
         if self.len + additional_rows > self.inner.len() {
             self.rezero();
@@ -157,13 +160,13 @@ impl<T> Storage<T> {
             // Cast to a qword array to opt out of copy restrictions and avoid
             // drop hazards. Byte array is no good here since for whatever
             // reason LLVM won't optimized it.
-            let a_ptr = self.inner.as_mut_ptr().add(a) as *mut usize;
-            let b_ptr = self.inner.as_mut_ptr().add(b) as *mut usize;
+            let a_ptr = self.inner.as_mut_ptr().add(a) as *mut MaybeUninit<usize>;
+            let b_ptr = self.inner.as_mut_ptr().add(b) as *mut MaybeUninit<usize>;
 
             // Copy 1 qword at a time.
             //
             // The optimizer unrolls this loop and vectorizes it.
-            let mut tmp: usize;
+            let mut tmp: MaybeUninit<usize>;
             for i in 0..4 {
                 tmp = *a_ptr.offset(i);
                 *a_ptr.offset(i) = *b_ptr.offset(i);
@@ -175,7 +178,7 @@ impl<T> Storage<T> {
     /// Rotate the grid, moving all lines up/down in history.
     #[inline]
     pub fn rotate(&mut self, count: isize) {
-        debug_assert!(count.abs() as usize <= self.inner.len());
+        debug_assert!(count.unsigned_abs() <= self.inner.len());
 
         let len = self.inner.len();
         self.zero = (self.zero as isize + count + len as isize) as usize % len;
@@ -227,11 +230,7 @@ impl<T> Storage<T> {
         //
         // Requires `zeroed` to be smaller than `self.inner.len() * 2`,
         // but both `self.zero` and `requested` are always smaller than `self.inner.len()`.
-        if zeroed >= self.inner.len() {
-            zeroed - self.inner.len()
-        } else {
-            zeroed
-        }
+        if zeroed >= self.inner.len() { zeroed - self.inner.len() } else { zeroed }
     }
 
     /// Rotate the ringbuffer to reset `self.zero` back to index `0`.
@@ -266,9 +265,9 @@ impl<T> IndexMut<Line> for Storage<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::grid::row::Row;
-    use crate::grid::storage::{Storage, MAX_CACHE_SIZE};
     use crate::grid::GridCell;
+    use crate::grid::row::Row;
+    use crate::grid::storage::{MAX_CACHE_SIZE, Storage};
     use crate::index::{Column, Line};
     use crate::term::cell::Flags;
 
@@ -317,6 +316,7 @@ mod tests {
 
     #[test]
     #[should_panic]
+    #[cfg(debug_assertions)]
     fn indexing_above_inner_len() {
         let storage = Storage::<char>::with_capacity(1, 1);
         let _ = &storage[Line(-1)];

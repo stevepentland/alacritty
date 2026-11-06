@@ -135,7 +135,7 @@ mod sys {
         pub pvi_rdir: vnode_info_path,
     }
 
-    extern "C" {
+    unsafe extern "C" {
         pub fn proc_pidinfo(
             pid: c_int,
             flavor: c_int,
@@ -150,8 +150,7 @@ mod sys {
 mod tests {
     use super::*;
 
-    use std::env;
-    use std::process;
+    use std::{env, process};
 
     #[test]
     fn cwd_matches_current_dir() {

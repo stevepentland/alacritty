@@ -1,8 +1,8 @@
 //! Alacritty - The GPU Enhanced Terminal.
 
 #![warn(rust_2018_idioms, future_incompatible)]
-#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use, clippy::wrong_pub_self_convention)]
-#![cfg_attr(feature = "cargo-clippy", deny(warnings))]
+#![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
+#![cfg_attr(clippy, deny(warnings))]
 // With the default subsystem, 'console', windows creates an additional console
 // window for the program.
 // This is silently ignored on non-windows systems.
@@ -12,22 +12,19 @@
 #[cfg(not(any(feature = "x11", feature = "wayland", target_os = "macos", windows)))]
 compile_error!(r#"at least one of the "x11"/"wayland" features must be enabled"#);
 
-#[cfg(target_os = "macos")]
-use std::env;
 use std::error::Error;
-use std::fs;
+use std::fmt::Write as _;
 use std::io::{self, Write};
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::{env, fs};
 
-use glutin::event_loop::EventLoop as GlutinEventLoop;
-use log::{error, info};
+use log::info;
 #[cfg(windows)]
-use winapi::um::wincon::{AttachConsole, FreeConsole, ATTACH_PARENT_PROCESS};
+use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, FreeConsole};
+use winit::event_loop::EventLoop;
+#[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
+use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
-use alacritty_terminal::event_loop::{self, EventLoop, Msg};
-use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::sync::FairMutex;
-use alacritty_terminal::term::Term;
 use alacritty_terminal::tty;
 
 mod cli;
@@ -41,26 +38,35 @@ mod logging;
 #[cfg(target_os = "macos")]
 mod macos;
 mod message_bar;
+mod migrate;
 #[cfg(windows)]
 mod panic;
+#[cfg(unix)]
+mod polling;
 mod renderer;
 mod scheduler;
+mod string;
+mod window_context;
 
 mod gl {
-    #![allow(clippy::all)]
+    #![allow(clippy::all, unsafe_op_in_unsafe_fn)]
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
 }
 
-use crate::cli::Options;
-use crate::config::monitor;
-use crate::config::Config;
-use crate::display::Display;
-use crate::event::{Event, EventProxy, Processor};
+#[cfg(unix)]
+use crate::cli::MessageOptions;
+#[cfg(not(any(target_os = "macos", windows)))]
+use crate::cli::SocketMessage;
+use crate::cli::{Options, Subcommands};
+use crate::config::UiConfig;
+use crate::config::monitor::ConfigMonitor;
+use crate::event::{Event, Processor};
 #[cfg(target_os = "macos")]
 use crate::macos::locale;
-use crate::message_bar::MessageBuffer;
+#[cfg(unix)]
+use crate::polling::{IoListener, ipc};
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(windows)]
     panic::attach_handler();
 
@@ -75,153 +81,153 @@ fn main() {
     // Load command line options.
     let options = Options::new();
 
-    // Setup glutin event loop.
-    let window_event_loop = GlutinEventLoop::<Event>::with_user_event();
+    match options.subcommands {
+        #[cfg(unix)]
+        Some(Subcommands::Msg(options)) => msg(options)?,
+        Some(Subcommands::Migrate(options)) => migrate::migrate(options),
+        None => alacritty(options)?,
+    }
+
+    Ok(())
+}
+
+/// `msg` subcommand entrypoint.
+#[cfg(unix)]
+#[allow(unused_mut)]
+fn msg(mut options: MessageOptions) -> Result<(), Box<dyn Error>> {
+    #[cfg(not(any(target_os = "macos", windows)))]
+    if let SocketMessage::CreateWindow(window_options) = &mut options.message {
+        window_options.activation_token =
+            env::var("XDG_ACTIVATION_TOKEN").or_else(|_| env::var("DESKTOP_STARTUP_ID")).ok();
+    }
+    ipc::send_message(options.socket, options.message).map_err(|err| err.into())
+}
+
+/// Temporary files stored for Alacritty.
+///
+/// This stores temporary files to automate their destruction through its `Drop` implementation.
+struct TemporaryFiles {
+    #[cfg(unix)]
+    socket_path: Option<PathBuf>,
+    log_file: Option<PathBuf>,
+}
+
+impl Drop for TemporaryFiles {
+    fn drop(&mut self) {
+        // Clean up the IPC socket file.
+        #[cfg(unix)]
+        if let Some(socket_path) = self.socket_path.as_deref() {
+            let _ = fs::remove_file(socket_path);
+        }
+
+        // Clean up logfile.
+        if let Some(log_file) = &self.log_file {
+            if fs::remove_file(log_file).is_ok() {
+                let _ = writeln!(io::stdout(), "Deleted log file at \"{}\"", log_file.display());
+            }
+        }
+    }
+}
+
+/// Run main Alacritty entrypoint.
+///
+/// Creates a window, the terminal state, PTY, I/O event loop, input processor,
+/// config change monitor, and runs the main display loop.
+fn alacritty(mut options: Options) -> Result<(), Box<dyn Error>> {
+    // Setup winit event loop.
+    let window_event_loop = EventLoop::<Event>::with_user_event().build()?;
 
     // Initialize the logger as soon as possible as to capture output from other subsystems.
     let log_file = logging::initialize(&options, window_event_loop.create_proxy())
         .expect("Unable to initialize logger");
 
+    info!("Welcome to Alacritty");
+    info!("Version {}", env!("VERSION"));
+
+    #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
+    info!(
+        "Running on {}",
+        if matches!(
+            window_event_loop.display_handle().unwrap().as_raw(),
+            RawDisplayHandle::Wayland(_)
+        ) {
+            "Wayland"
+        } else {
+            "X11"
+        }
+    );
+    #[cfg(not(any(feature = "x11", target_os = "macos", windows)))]
+    info!("Running on Wayland");
+
     // Load configuration file.
-    let config = config::load(&options);
+    let config = config::load(&mut options);
+    log_config_path(&config);
 
     // Update the log level from config.
-    log::set_max_level(config.ui_config.debug.log_level);
+    log::set_max_level(config.debug.log_level);
+
+    // Set tty environment variables.
+    tty::setup_env();
+
+    // Set env vars from config.
+    for (key, value) in config.env.iter() {
+        unsafe { env::set_var(key, value) };
+    }
 
     // Switch to home directory.
     #[cfg(target_os = "macos")]
-    env::set_current_dir(dirs::home_dir().unwrap()).unwrap();
-    // Set locale.
+    env::set_current_dir(home::home_dir().unwrap()).unwrap();
+
+    // Set macOS locale.
     #[cfg(target_os = "macos")]
     locale::set_locale_environment();
 
-    // Store if log file should be deleted before moving config.
-    let persistent_logging = config.ui_config.debug.persistent_logging;
+    #[cfg(target_os = "macos")]
+    macos::disable_autofill();
 
-    // Run Alacritty.
-    if let Err(err) = run(window_event_loop, config, options) {
-        error!("Alacritty encountered an unrecoverable error:\n\n\t{}\n", err);
-        std::process::exit(1);
-    }
+    // Spawn the Unix I/O event polling thread.
+    #[cfg(unix)]
+    let socket_path = match IoListener::spawn(&config, &options, window_event_loop.create_proxy()) {
+        Ok(handle) => handle.ipc_socket_path,
+        Err(err) if options.daemon => return Err(err.into()),
+        Err(err) => {
+            log::warn!("Unable to create socket: {err:?}");
+            None
+        },
+    };
 
-    // Clean up logfile.
-    if let Some(log_file) = log_file {
-        if !persistent_logging && fs::remove_file(&log_file).is_ok() {
-            let _ = writeln!(io::stdout(), "Deleted log file at \"{}\"", log_file.display());
-        }
-    }
-}
-
-/// Run Alacritty.
-///
-/// Creates a window, the terminal state, PTY, I/O event loop, input processor,
-/// config change monitor, and runs the main display loop.
-fn run(
-    window_event_loop: GlutinEventLoop<Event>,
-    config: Config,
-    options: Options,
-) -> Result<(), Box<dyn Error>> {
-    info!("Welcome to Alacritty");
-
-    // Log the configuration paths.
-    log_config_path(&config);
-
-    // Set environment variables.
-    tty::setup_env(&config);
-
-    let event_proxy = EventProxy::new(window_event_loop.create_proxy());
-
-    // Create a display.
-    //
-    // The display manages a window and can draw the terminal.
-    let display = Display::new(&config, &window_event_loop)?;
-
-    info!(
-        "PTY dimensions: {:?} x {:?}",
-        display.size_info.screen_lines(),
-        display.size_info.columns()
-    );
-
-    // Create the terminal.
-    //
-    // This object contains all of the state about what's being displayed. It's
-    // wrapped in a clonable mutex since both the I/O loop and display need to
-    // access it.
-    let terminal = Term::new(&config, display.size_info, event_proxy.clone());
-    let terminal = Arc::new(FairMutex::new(terminal));
-
-    // Create the PTY.
-    //
-    // The PTY forks a process to run the shell on the slave side of the
-    // pseudoterminal. A file descriptor for the master side is retained for
-    // reading/writing to the shell.
-    let pty = tty::new(&config, &display.size_info, display.window.x11_window_id());
-
-    // Create the pseudoterminal I/O loop.
-    //
-    // PTY I/O is ran on another thread as to not occupy cycles used by the
-    // renderer and input processing. Note that access to the terminal state is
-    // synchronized since the I/O loop updates the state, and the display
-    // consumes it periodically.
-    let event_loop = EventLoop::new(
-        Arc::clone(&terminal),
-        event_proxy.clone(),
-        pty,
-        config.hold,
-        config.ui_config.debug.ref_test,
-    );
-
-    // The event loop channel allows write requests from the event processor
-    // to be sent to the pty loop and ultimately written to the pty.
-    let loop_tx = event_loop.channel();
-
-    // Create a config monitor when config was loaded from path.
-    //
-    // The monitor watches the config file for changes and reloads it. Pending
-    // config changes are processed in the main loop.
-    if config.ui_config.live_config_reload {
-        monitor::watch(config.ui_config.config_paths.clone(), event_proxy);
-    }
-
-    // Setup storage for message UI.
-    let message_buffer = MessageBuffer::new();
+    // Setup automatic RAII cleanup for our files.
+    let log_cleanup = log_file.filter(|_| !config.debug.persistent_logging);
+    let _files = TemporaryFiles {
+        #[cfg(unix)]
+        socket_path,
+        log_file: log_cleanup,
+    };
 
     // Event processor.
-    let mut processor = Processor::new(
-        event_loop::Notifier(loop_tx.clone()),
-        message_buffer,
-        config,
-        display,
-        options,
-    );
-
-    // Kick off the I/O thread.
-    let io_thread = event_loop.spawn();
-
-    info!("Initialisation complete");
+    let mut processor = Processor::new(config, options, &window_event_loop);
 
     // Start event loop and block until shutdown.
-    processor.run(terminal, window_event_loop);
+    let result = processor.run(window_event_loop);
 
-    // This explicit drop is needed for Windows, ConPTY backend. Otherwise a deadlock can occur.
-    // The cause:
-    //   - Drop for ConPTY will deadlock if the conout pipe has already been dropped.
-    //   - The conout pipe is dropped when the io_thread is joined below (io_thread owns PTY).
-    //   - ConPTY is dropped when the last of processor and io_thread are dropped, because both of
-    //     them own an Arc<ConPTY>.
+    // `Processor` must be dropped before calling `FreeConsole`.
     //
-    // The fix is to ensure that processor is dropped first. That way, when io_thread (i.e. PTY)
-    // is dropped, it can ensure ConPTY is dropped before the conout pipe in the PTY drop order.
+    // This is needed for ConPTY backend. Otherwise a deadlock can occur.
+    // The cause:
+    //   - Drop for ConPTY will deadlock if the conout pipe has already been dropped
+    //   - ConPTY is dropped when the last of processor and window context are dropped, because both
+    //     of them own an Arc<ConPTY>
+    //
+    // The fix is to ensure that processor is dropped first. That way, when window context (i.e.
+    // PTY) is dropped, it can ensure ConPTY is dropped before the conout pipe in the PTY drop
+    // order.
     //
     // FIXME: Change PTY API to enforce the correct drop order with the typesystem.
-    drop(processor);
 
-    // Shutdown PTY parser event loop.
-    loop_tx.send(Msg::Shutdown).expect("Error sending shutdown to PTY event loop");
-    io_thread.join().expect("join io thread");
-
-    // FIXME patch notify library to have a shutdown method.
-    // config_reloader.join().ok();
+    // Terminate the config monitor.
+    if let Some(config_monitor) = processor.config_monitor.take() {
+        config_monitor.shutdown();
+    }
 
     // Without explicitly detaching the console cmd won't redraw it's prompt.
     #[cfg(windows)]
@@ -231,14 +237,18 @@ fn run(
 
     info!("Goodbye");
 
-    Ok(())
+    result
 }
 
-fn log_config_path(config: &Config) {
-    let mut msg = String::from("Configuration files loaded from:");
-    for path in &config.ui_config.config_paths {
-        msg.push_str(&format!("\n  {:?}", path.display()));
+fn log_config_path(config: &UiConfig) {
+    if config.config_paths.is_empty() {
+        return;
     }
 
-    info!("{}", msg);
+    let mut msg = String::from("Configuration files loaded from:");
+    for path in &config.config_paths {
+        let _ = write!(msg, "\n  {:?}", path.display());
+    }
+
+    info!("{msg}");
 }

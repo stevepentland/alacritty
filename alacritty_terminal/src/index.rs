@@ -1,10 +1,11 @@
 //! Line and Column newtypes for strongly typed tty/grid/terminal APIs.
 
 /// Indexing types and implementations for Grid and Line.
-use std::cmp::{max, min, Ord, Ordering};
+use std::cmp::{Ord, Ordering, max, min};
 use std::fmt;
 use std::ops::{Add, AddAssign, Deref, Sub, SubAssign};
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::grid::Dimensions;
@@ -20,6 +21,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    #[must_use]
     pub fn opposite(self) -> Self {
         match self {
             Side::Right => Side::Left,
@@ -43,7 +45,8 @@ pub enum Boundary {
 }
 
 /// Index in the grid using row, column notation.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Point<L = Line, C = Column> {
     pub line: L,
     pub column: C,
@@ -128,11 +131,13 @@ impl<L: Ord, C: Ord> Ord for Point<L, C> {
 /// A line.
 ///
 /// Newtype to avoid passing values incorrectly.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Default, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Line(pub i32);
 
 impl Line {
     /// Clamp a line to a grid boundary.
+    #[must_use]
     pub fn grid_clamp<D: Dimensions>(self, dimensions: &D, boundary: Boundary) -> Self {
         match boundary {
             Boundary::Cursor => max(Line(0), min(dimensions.bottommost_line(), self)),
@@ -220,7 +225,8 @@ impl PartialEq<usize> for Line {
 /// A column.
 ///
 /// Newtype to avoid passing values incorrectly.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Default, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Column(pub usize);
 
 impl fmt::Display for Column {

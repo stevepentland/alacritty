@@ -12,7 +12,8 @@ Table of Contents:
     3. [Documentation](#documentation)
     4. [Style](#style)
 4. [Release Process](#release-process)
-5. [Contact](#contact)
+5. [LLM / "AI" Contributions](#llmai-contributions)
+6. [Contact](#contact)
 
 ## Feature Requests
 
@@ -34,7 +35,7 @@ introduced the regression helps out a lot.
 
 ## Patches / Pull Requests
 
-All patches have to be sent on Github as [pull requests](https://github.com/alacritty/alacritty/pulls).
+All patches have to be sent on GitHub as [pull requests](https://github.com/alacritty/alacritty/pulls).
 
 If you are looking for a place to start contributing to Alacritty, take a look at the
 [help wanted](https://github.com/alacritty/alacritty/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22)
@@ -42,8 +43,9 @@ and
 [easy](https://github.com/alacritty/alacritty/issues?q=is%3Aopen+is%3Aissue+label%3A%22D+-+easy%22)
 issues.
 
-Please note that the minimum supported version of Alacritty is Rust 1.43.0. All patches are expected
-to work with the minimum supported version.
+You can find the minimum supported Rust version in Alacritty's manifest file
+(`cat alacritty/Cargo.toml | grep "rust-version"`). Alacritty **must** always
+build with the MSRV and bumping it should be avoided if possible.
 
 Since `alacritty_terminal`'s version always tracks the next release, make sure that the version is
 bumped according to semver when necessary.
@@ -86,15 +88,15 @@ Latency is another important factor for Alacritty. On X11, Windows, and macOS th
 Code should be documented where appropriate. The existing code can be used as a guidance here and
 the general `rustfmt` rules can be followed for formatting.
 
-If any change has been made to the `config.rs` file, these changes should also be documented in the
-example configuration file `alacritty.yml`.
+If any change has been made to the `config.rs` file, it should also be documented in the man pages.
 
 Changes compared to the latest Alacritty release which have a direct effect on the user (opposed to
 things like code refactorings or documentation/tests) additionally need to be documented in the
-`CHANGELOG.md`. The existing entries should be used as a style guideline. The change log should be
-used to document changes from a user-perspective, instead of explaining the technical background
-(like commit messages). More information about Alacritty's change log format can be found
-[here](https://keepachangelog.com).
+`CHANGELOG.md`. When a notable change is made to `alacritty_terminal`, it should be documented in
+`alacritty_terminal/CHANGELOG.md` as well. The existing entries should be used as a style guideline.
+The change log should be used to document changes from a user-perspective, instead of explaining the
+technical background (like commit messages) More information about Alacritty's change log format can
+be found [here](https://keepachangelog.com).
 
 ### Style
 
@@ -114,27 +116,28 @@ documentation comments.
 Alacritty's release process aims to provide stable and well tested releases without having to hold
 back new features during the testing period.
 
-To achieve these goals, a new branch is created for every new release. Both the release candidates
-and the final version are only comitted and tagged in this branch. The master branch only tracks
+To achieve these goals, a new branch is created for every major release. Both the release candidates
+and the final version are only committed and tagged in this branch. The master branch only tracks
 development versions, allowing us to keep the branches completely separate without merging releases
 back into master.
 
 The exact steps for an exemplary `0.2.0` release might look like this:
   1. Initially, the version on the latest master is `0.2.0-dev`
-  2. A new `v0.2.0` branch is created for the release
+  2. A new `v0.2` branch is created for the release
   3. In the branch, the version is bumped to `0.2.0-rc1`
   4. The new commit in the branch is tagged as `v0.2.0-rc1`
-  5. A GitHub release is created for the `v0.2.0-rc1` tag
-  6. The changelog since the last release (stable or RC) is added to the GitHub release description
-  7. On master, the version is bumped to `0.3.0-dev`
+  5. The pre-release versions are published to crates.io
+  6. A GitHub release is created for the `v0.2.0-rc1` tag
+  7. The changelog since the last release (stable or RC) is added to the GitHub release description
+  8. On master, the version is bumped to `0.3.0-dev`
      and the `-dev` suffix is removed from the `0.2.0-dev` changelog
-  8. Bug fixes are cherry-picked from master into the branch and steps 4-7 are repeated until no
+  9. Bug fixes are cherry-picked from master into the branch and steps 3-7 are repeated until no
      major issues are found in the release candidates
-  9. In the branch, the version is bumped to `0.2.0`
- 10. The new commit in the branch is tagged as `v0.2.0`
- 11. The new version is published to crates.io
- 12. A GitHub release is created for the `v0.2.0` tag
- 13. The changelog since the last stable release (**not** RC) is added to the GitHub release
+ 10. In the branch, the version is bumped to `0.2.0`
+ 11. The new commit in the branch is tagged as `v0.2.0`
+ 12. The new version is published to crates.io
+ 13. A GitHub release is created for the `v0.2.0` tag
+ 14. The changelog since the last stable release (**not** RC) is added to the GitHub release
      description
 
 On master and with new planned releases, only the minor version is bumped. This makes it possible to
@@ -143,11 +146,11 @@ having to adjust the next planned release's version number.
 
 The exact steps for an exemplary `0.2.3` release might look like this:
  1. Initially, the version on the latest master is `0.3.0-dev` and the latest release was `0.2.2`
- 2. A new `v0.2.3` branch is forked from the `v0.2.2` branch
- 4. All bug fixes are cherry-picked from master into the `v0.2.3` branch
- 5. The version is bumped to `v0.2.3-rc1` and the changelog is updated to include all fixes
- 6. Follow Steps 5-12 of the regular release's example
- 7. The release's changelog is ported back to master, removing fixes from the `0.2.3` release
+ 2. The `v0.2` branch is checked out
+ 3. All bug fixes are cherry-picked from master into the `v0.2` branch
+ 4. The version is bumped to `v0.2.3-rc1` and the changelog is updated to include all fixes
+ 5. Follow Steps 4-13 of the regular release's example
+ 6. The release's changelog is ported back to master, removing fixes from the `0.2.3` release
 
 The `alacritty_terminal` crate is released in synchronization with `alacritty`, keeping the `-dev`
 and `-rcX` version suffix identical across the two crates. As soon as the new Alacritty stable
@@ -155,10 +158,16 @@ release is made, releases are tagged as `alacritty_terminal_vX.Y.Z` and pushed t
 a release, only the patch version is bumped on master, since there haven't been any changes since
 the last release yet.
 
+# LLM/"AI" Contributions
+
+Contributions **must not** include content generated by large language models or other probabilistic
+tools, including but not limited to Copilot or ChatGPT. This policy covers code, documentation, pull
+requests, issues, comments, and any other contributions to the Alacritty project.
+
 # Contact
 
 If there are any outstanding questions about contributing to Alacritty, they can be asked on the
 [Alacritty issue tracker](https://github.com/alacritty/alacritty/issues).
 
 As a more immediate and direct form of communication, the Alacritty IRC channel (`#alacritty` on
-Freenode) can be used to contact many of the Alacritty contributors.
+Libera.Chat) can be used to contact many of the Alacritty contributors.

@@ -1,11 +1,10 @@
 //! Defines the Row type which makes up lines in the grid.
 
 use std::cmp::{max, min};
-use std::ops::{Index, IndexMut};
-use std::ops::{Range, RangeFrom, RangeFull, RangeTo, RangeToInclusive};
-use std::ptr;
-use std::slice;
+use std::ops::{Index, IndexMut, Range, RangeFrom, RangeFull, RangeTo, RangeToInclusive};
+use std::{iter, slice};
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::grid::GridCell;
@@ -13,7 +12,8 @@ use crate::index::Column;
 use crate::term::cell::ResetDiscriminant;
 
 /// A row in the grid.
-#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[derive(Default, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Row<T> {
     inner: Vec<T>,
 
@@ -30,28 +30,10 @@ impl<T: PartialEq> PartialEq for Row<T> {
     }
 }
 
-impl<T: Clone + Default> Row<T> {
+impl<T: Default> Row<T> {
     /// Create a new terminal row.
-    ///
-    /// Ideally the `template` should be `Copy` in all performance sensitive scenarios.
     pub fn new(columns: usize) -> Row<T> {
-        debug_assert!(columns >= 1);
-
-        let mut inner: Vec<T> = Vec::with_capacity(columns);
-
-        // This is a slightly optimized version of `std::vec::Vec::resize`.
-        unsafe {
-            let mut ptr = inner.as_mut_ptr();
-
-            for _ in 1..columns {
-                ptr::write(ptr, T::default());
-                ptr = ptr.offset(1);
-            }
-            ptr::write(ptr, T::default());
-
-            inner.set_len(columns);
-        }
-
+        let inner = iter::repeat_with(T::default).take(columns).collect();
         Row { inner, occ: 0 }
     }
 
@@ -78,16 +60,12 @@ impl<T: Clone + Default> Row<T> {
 
         // Split off cells for a new row.
         let mut new_row = self.inner.split_off(columns);
-        let index = new_row.iter().rposition(|c| !c.is_empty()).map(|i| i + 1).unwrap_or(0);
+        let index = new_row.iter().rposition(|c| !c.is_empty()).map_or(0, |i| i + 1);
         new_row.truncate(index);
 
         self.occ = min(self.occ, columns);
 
-        if new_row.is_empty() {
-            None
-        } else {
-            Some(new_row)
-        }
+        if new_row.is_empty() { None } else { Some(new_row) }
     }
 
     /// Reset all cells in the row to the `template` cell.
@@ -170,6 +148,16 @@ impl<T> Row<T> {
         let mut split = self.inner.split_off(at);
         std::mem::swap(&mut split, &mut self.inner);
         split
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Row<T> {
+    type IntoIter = slice::Iter<'a, T>;
+    type Item = &'a T;
+
+    #[inline]
+    fn into_iter(self) -> slice::Iter<'a, T> {
+        self.inner.iter()
     }
 }
 
@@ -281,7 +269,7 @@ impl<T> Index<RangeToInclusive<Column>> for Row<T> {
 impl<T> IndexMut<RangeToInclusive<Column>> for Row<T> {
     #[inline]
     fn index_mut(&mut self, index: RangeToInclusive<Column>) -> &mut [T] {
-        self.occ = max(self.occ, *index.end);
+        self.occ = max(self.occ, *index.end + 1);
         &mut self.inner[..=(index.end.0)]
     }
 }

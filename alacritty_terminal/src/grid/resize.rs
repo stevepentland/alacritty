@@ -1,6 +1,6 @@
 //! Grid resize and reflow.
 
-use std::cmp::{max, min, Ordering};
+use std::cmp::{Ordering, max, min};
 use std::mem;
 
 use crate::index::{Boundary, Column, Line};
@@ -9,7 +9,7 @@ use crate::term::cell::{Flags, ResetDiscriminant};
 use crate::grid::row::Row;
 use crate::grid::{Dimensions, Grid, GridCell};
 
-impl<T: GridCell + Default + PartialEq + Clone> Grid<T> {
+impl<T: GridCell + Default + PartialEq> Grid<T> {
     /// Resize the grid's width and/or height.
     pub fn resize<D>(&mut self, reflow: bool, lines: usize, columns: usize)
     where
@@ -367,6 +367,9 @@ impl<T: GridCell + Default + PartialEq + Clone> Grid<T> {
         let mut reversed: Vec<Row<T>> = new_raw.drain(..).rev().collect();
         reversed.truncate(self.max_scroll_limit + self.lines);
         self.raw.replace_inner(reversed);
+
+        // Clamp display offset in case some lines went off.
+        self.display_offset = min(self.display_offset, self.history_size());
 
         // Reflow the primary cursor, or clamp it if reflow is disabled.
         if !reflow {

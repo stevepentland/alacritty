@@ -2,9 +2,9 @@ use std::fmt;
 
 use crossfont::Size as FontSize;
 use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use alacritty_config_derive::ConfigDeserialize;
+use alacritty_config_derive::{ConfigDeserialize, SerdeReplace};
 
 use crate::config::ui_config::Delta;
 
@@ -14,7 +14,7 @@ use crate::config::ui_config::Delta;
 /// field in this struct. It might be nice in the future to have defaults for
 /// each value independently. Alternatively, maybe erroring when the user
 /// doesn't provide complete config is Ok.
-#[derive(ConfigDeserialize, Default, Debug, Clone, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Font {
     /// Extra spacing per character.
     pub offset: Delta<i8>,
@@ -22,6 +22,7 @@ pub struct Font {
     /// Glyph offset within character cell.
     pub glyph_offset: Delta<i8>,
 
+    #[config(removed = "set the AppleFontSmoothing user default instead")]
     pub use_thin_strokes: bool,
 
     /// Normal font face.
@@ -38,6 +39,9 @@ pub struct Font {
 
     /// Font size in points.
     size: Size,
+
+    /// Whether to use the built-in font for box drawing characters.
+    pub builtin_box_drawing: bool,
 }
 
 impl Font {
@@ -72,8 +76,24 @@ impl Font {
     }
 }
 
+impl Default for Font {
+    fn default() -> Font {
+        Self {
+            builtin_box_drawing: true,
+            glyph_offset: Default::default(),
+            use_thin_strokes: Default::default(),
+            bold_italic: Default::default(),
+            italic: Default::default(),
+            offset: Default::default(),
+            normal: Default::default(),
+            bold: Default::default(),
+            size: Default::default(),
+        }
+    }
+}
+
 /// Description of the normal font.
-#[derive(ConfigDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct FontDescription {
     pub family: String,
     pub style: Option<String>,
@@ -94,7 +114,7 @@ impl Default for FontDescription {
 }
 
 /// Description of the italic and bold font.
-#[derive(ConfigDeserialize, Debug, Default, Clone, PartialEq, Eq)]
+#[derive(ConfigDeserialize, Serialize, Debug, Default, Clone, PartialEq, Eq)]
 pub struct SecondaryFontDescription {
     family: Option<String>,
     style: Option<String>,
@@ -109,12 +129,12 @@ impl SecondaryFontDescription {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(SerdeReplace, Debug, Clone, PartialEq, Eq)]
 struct Size(FontSize);
 
 impl Default for Size {
     fn default() -> Self {
-        Self(FontSize::new(11.))
+        Self(FontSize::new(11.25))
     }
 }
 
@@ -124,22 +144,31 @@ impl<'de> Deserialize<'de> for Size {
         D: Deserializer<'de>,
     {
         struct NumVisitor;
-        impl<'v> Visitor<'v> for NumVisitor {
+        impl Visitor<'_> for NumVisitor {
             type Value = Size;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("f64 or u64")
+                f.write_str("f64 or i64")
             }
 
             fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
                 Ok(Size(FontSize::new(value as f32)))
             }
 
-            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
                 Ok(Size(FontSize::new(value as f32)))
             }
         }
 
         deserializer.deserialize_any(NumVisitor)
+    }
+}
+
+impl Serialize for Size {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_f32(self.0.as_pt())
     }
 }

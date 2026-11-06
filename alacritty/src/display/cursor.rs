@@ -1,9 +1,9 @@
 //! Convert a cursor into an iterator of rects.
 
-use alacritty_terminal::ansi::CursorShape;
-use alacritty_terminal::term::color::Rgb;
-use alacritty_terminal::term::SizeInfo;
+use alacritty_terminal::vte::ansi::CursorShape;
 
+use crate::display::SizeInfo;
+use crate::display::color::Rgb;
 use crate::display::content::RenderableCursor;
 use crate::renderer::rects::RenderRect;
 
@@ -22,11 +22,9 @@ impl IntoRects for RenderableCursor {
         let mut width = size_info.cell_width();
         let height = size_info.cell_height();
 
-        let thickness = (thickness * width as f32).round().max(1.);
+        let thickness = (thickness * width).round().max(1.);
 
-        if self.is_wide() {
-            width *= 2.;
-        }
+        width *= self.width().get() as f32;
 
         match self.shape() {
             CursorShape::Beam => beam(x, y, height, thickness, self.color()),

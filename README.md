@@ -5,9 +5,8 @@
 <h1 align="center">Alacritty - A fast, cross-platform, OpenGL terminal emulator</h1>
 
 <p align="center">
-  <img width="600"
-       alt="Alacritty - A fast, cross-platform, OpenGL terminal emulator"
-       src="https://user-images.githubusercontent.com/8886672/103264352-5ab0d500-49a2-11eb-8961-02f7da66c855.png">
+  <img alt="Alacritty - A fast, cross-platform, OpenGL terminal emulator"
+       src="https://raw.githubusercontent.com/alacritty/alacritty/master/extra/promo/alacritty-readme.png">
 </p>
 
 ## About
@@ -24,6 +23,10 @@ a daily driver.
 
 Precompiled binaries are available from the [GitHub releases page](https://github.com/alacritty/alacritty/releases).
 
+Join [`#alacritty`] on libera.chat if you have questions or looking for a quick help.
+
+[`#alacritty`]: https://web.libera.chat/gamja/?channels=#alacritty
+
 ## Features
 
 You can find an overview over the features available in Alacritty [here](./docs/features.md).
@@ -33,8 +36,6 @@ You can find an overview over the features available in Alacritty [here](./docs/
 - [Announcing Alacritty, a GPU-Accelerated Terminal Emulator](https://jwilm.io/blog/announcing-alacritty/) January 6, 2017
 - [A talk about Alacritty at the Rust Meetup January 2017](https://www.youtube.com/watch?v=qHOdYO3WUTk) January 19, 2017
 - [Alacritty Lands Scrollback, Publishes Benchmarks](https://jwilm.io/blog/alacritty-lands-scrollback/) September 17, 2018
-- [Version 0.3.0 Release Announcement](https://blog.christianduerr.com/alacritty_030_announcement) April 07, 2019
-- [Version 0.5.0 Release Announcement](https://blog.christianduerr.com/alacritty_0_5_0_announcement) July 31, 2020
 
 ## Installation
 
@@ -49,27 +50,29 @@ For everyone else, the detailed instructions to install Alacritty can be found
 
 ### Requirements
 
-- OpenGL 3.3 or higher
+- At least OpenGL ES 2.0
 - [Windows] ConPTY support (Windows 10 version 1809 or higher)
 
 ## Configuration
 
-You can find the default configuration file with documentation for all available
-fields on the [GitHub releases page](https://github.com/alacritty/alacritty/releases) for each release.
+You can find the documentation for Alacritty's configuration in `man 5
+alacritty`, or by looking at [the website] if you do not have the manpages
+installed.
+
+[the website]: https://alacritty.org/config-alacritty.html
 
 Alacritty doesn't create the config file for you, but it looks for one in the
 following locations:
 
-1. `$XDG_CONFIG_HOME/alacritty/alacritty.yml`
-2. `$XDG_CONFIG_HOME/alacritty.yml`
-3. `$HOME/.config/alacritty/alacritty.yml`
-4. `$HOME/.alacritty.yml`
+1. `$XDG_CONFIG_HOME/alacritty/alacritty.toml`
+2. `$XDG_CONFIG_HOME/alacritty.toml`
+3. `$HOME/.config/alacritty/alacritty.toml`
+4. `$HOME/.alacritty.toml`
+5. `/etc/alacritty/alacritty.toml`
 
-### Windows
+On Windows, the config file will be looked for in:
 
-On Windows, the config file should be located at:
-
-`%APPDATA%\alacritty\alacritty.yml`
+* `%APPDATA%\alacritty\alacritty.toml`
 
 ## Contributing
 
@@ -102,13 +105,10 @@ good fit for Alacritty. This means you won't find things like tabs or splits
 (which are best left to a window manager or [terminal multiplexer][tmux]) nor
 niceties like a GUI config editor.
 
-## IRC
-
-Alacritty discussions can be found in `#alacritty` on freenode.
+[tmux]: https://github.com/tmux/tmux
 
 ## License
 
 Alacritty is released under the [Apache License, Version 2.0].
 
 [Apache License, Version 2.0]: https://github.com/alacritty/alacritty/blob/master/LICENSE-APACHE
-[tmux]: https://github.com/tmux/tmux
